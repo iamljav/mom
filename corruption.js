@@ -57,20 +57,138 @@ function toSepia(r, g, b, t) {
 function smoothstep(t) { return t * t * (3 - 2 * t); }
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
-// ── Single image corruption ──────────────────────────────────────────────────
+// ── B&W detection ────────────────────────────────────────────────────────────
 
-function corruptImageData(imgData, w, h, seed) {
-  const rng = seededRng(seed);
-  const nfn = makeNoise(rng);
+function detectBW(data, w, h) {
+  const step = Math.max(1, Math.floor(Math.sqrt(w * h) / 80));
+  let totalSat = 0, count = 0;
+  for (let py = 0; py < h; py += step) {
+    for (let px = 0; px < w; px += step) {
+      const i = (py * w + px) * 4;
+      const r = data[i] / 255, g = data[i+1] / 255, b = data[i+2] / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      totalSat += max > 0 ? (max - min) / max : 0;
+      count++;
+    }
+  }
+  return (totalSat / count) < 0.08;
+}
 
-  // ── Global parameters ──────────────────────────────────────────────────
-  const globalDecay   = 0.78 + rng() * 0.22;
+// ── Shared dust map ───────────────────────────────────────────────────────────
+
+function buildDustMap(w, h, rng) {
+  const num = Math.floor(w * h * (0.001 + rng() * 0.004));
+  const map = new Float32Array(w * h);
+  for (let i = 0; i < num; i++) {
+    const dx = Math.floor(rng() * w), dy = Math.floor(rng() * h);
+    const dr = 0.4 + rng() * 1.6;
+    const x0 = Math.max(0, Math.floor(dx-dr-1)), x1 = Math.min(w-1, Math.ceil(dx+dr+1));
+    const y0 = Math.max(0, Math.floor(dy-dr-1)), y1 = Math.min(h-1, Math.ceil(dy+dr+1));
+    for (let iy = y0; iy <= y1; iy++) {
+      for (let ix = x0; ix <= x1; ix++) {
+        const d = Math.sqrt((ix-dx)**2+(iy-dy)**2);
+        if (d <= dr) map[iy*w+ix] = Math.max(map[iy*w+ix], 1 - d/dr);
+      }
+    }
+  }
+  return map;
+}
+
+// ── B&W corruption ────────────────────────────────────────────────────────────
+// Directional dissolve: surviving core gets contrast-boosted,
+// boundary disintegrates into black particle grain on white.
+
+function corruptBW(data, w, h, seed, rng, nfn) {
+  const lacunarity = 1.7 + rng() * 0.6;
+
+  // Survival origin — biased to edge/corner so one side survives, other fades
+  const originX = rng() < 0.5 ? rng() * 0.3 : 0.7 + rng() * 0.3;
+  const originY = rng() < 0.5 ? rng() * 0.3 : 0.7 + rng() * 0.3;
+
+  const survivalRadius = 0.2 + rng() * 0.4;
+  const dissolveWidth  = 0.25 + rng() * 0.45;
+  const noiseScale     = 2.5 + rng() * 5.0;
+  const warpS          = 0.5 + rng() * 1.5;
+  const noiseWarp      = 0.1 + rng() * 0.2;
+  const contrastBoost  = 0.3 + rng() * 0.5;
+  const grainDensity   = 0.45 + rng() * 0.55;
+  const grainScale     = 0.7 + rng() * 1.4;
+
+  const dustMap = buildDustMap(w, h, rng);
+
+  for (let py = 0; py < h; py++) {
+    const ny = py / h;
+    for (let px = 0; px < w; px++) {
+      const nx = px / w;
+      const idx = (py * w + px) * 4;
+      let r = data[idx], g = data[idx+1], b = data[idx+2];
+
+      // Greyscale
+      const lum = r * 0.299 + g * 0.587 + b * 0.114;
+      r = g = b = lum;
+
+      // Distance from survival origin, domain-warped for organic boundary
+      const distRaw = Math.sqrt((nx - originX)**2 + (ny - originY)**2);
+      const wx = (fbm(nfn, nx*warpS+7.3, ny*warpS+2.1, 3, lacunarity, rng) + 1) / 2;
+      const wy = (fbm(nfn, nx*warpS+3.1, ny*warpS+8.7, 3, lacunarity, rng) + 1) / 2;
+      const warpedDist = distRaw + (wx - 0.5) * noiseWarp * 2 + (wy - 0.5) * noiseWarp;
+
+      // Fine particulate noise for the dissolving boundary texture
+      const fn1 = (fbm(nfn, nx*noiseScale,            ny*noiseScale,            6, lacunarity, rng) + 1) / 2;
+      const fn2 = (fbm(nfn, nx*noiseScale*2.3 + 19,   ny*noiseScale*2.3 + 41,   4, lacunarity, rng) + 1) / 2;
+      const boundary = fn1 * 0.6 + fn2 * 0.4;
+
+      // Dissolve field: 0 = survived, 1 = erased
+      const distNorm = (warpedDist - survivalRadius) / dissolveWidth;
+      const dissolveField = clamp(distNorm + (boundary - 0.5) * 1.4, 0, 1);
+      const eraseAmt = smoothstep(dissolveField);
+      const survived = 1 - eraseAmt;
+      const boundaryZone = eraseAmt * survived * 4;
+
+      // Contrast boost on surviving areas — blacks pushed darker
+      if (survived > 0.02) {
+        const norm = lum / 255;
+        r = g = b = Math.pow(norm, 1 + contrastBoost * survived) * 255;
+      }
+
+      // Erase to white
+      r = r + (255 - r) * eraseAmt;
+      g = g + (255 - g) * eraseAmt;
+      b = b + (255 - b) * eraseAmt;
+
+      // Particulate grain — thresholded dark dots, dense at boundary
+      const gn = (nfn(px * grainScale + (seed & 0xff), py * grainScale + ((seed >> 8) & 0xff)) + 1) / 2;
+      const thresh = 1 - grainDensity * (boundaryZone * 0.85 + survived * 0.12);
+      if (gn > thresh) {
+        const str = (gn - thresh) / (1 - thresh);
+        const dark = str * str * 210 * (boundaryZone * 0.75 + survived * 0.18);
+        r = clamp(r - dark, 0, 255);
+        g = clamp(g - dark, 0, 255);
+        b = clamp(b - dark, 0, 255);
+      }
+
+      // Dust
+      const dv = dustMap[py * w + px];
+      if (dv > 0) {
+        r = clamp(r * (1 - dv * 0.8), 0, 255);
+        g = clamp(g * (1 - dv * 0.8), 0, 255);
+        b = clamp(b * (1 - dv * 0.8), 0, 255);
+      }
+
+      data[idx] = r; data[idx+1] = g; data[idx+2] = b;
+    }
+  }
+}
+
+// ── Colour corruption ─────────────────────────────────────────────────────────
+// Organic patch/vignette dissolution. No scratches, no warm paper bias.
+// Fade destination derived from the image's own average tone.
+
+function corruptColour(data, w, h, seed, rng, nfn) {
+  const globalDecay   = 0.75 + rng() * 0.25;
   const scaleX        = 1.0 + rng() * 5.0;
   const scaleY        = 1.0 + rng() * 5.0;
   const lacunarity    = 1.6 + rng() * 0.8;
-  const paperR        = 218 + rng() * 12;
-  const paperG        = 202 + rng() * 12;
-  const paperB        = 178 + rng() * 12;
   const vigCx         = 0.2 + rng() * 0.6;
   const vigCy         = 0.2 + rng() * 0.6;
   const vigPow        = 0.7 + rng() * 3.0;
@@ -79,127 +197,41 @@ function corruptImageData(imgData, w, h, seed) {
   const warpA         = 0.1 + rng() * 0.22;
   const eraseThresh   = 0.22 + rng() * 0.28;
   const edgeSharpness = 8 + rng() * 22;
+  const grainAmp      = 35 + rng() * 65;
+  const grainScale    = 0.25 + rng() * 0.5;
 
-  // ── Emulsion patches ───────────────────────────────────────────────────
-  const numP   = 14 + Math.floor(rng() * 28);
+  // Sample image to derive a bleach fade tone (image-specific, not warm paper)
+  let sumR = 0, sumG = 0, sumB = 0, n = 0;
+  const step = Math.max(4, Math.floor(Math.sqrt(w * h) / 60));
+  for (let py = 0; py < h; py += step) {
+    for (let px = 0; px < w; px += step) {
+      const i = (py * w + px) * 4;
+      sumR += data[i]; sumG += data[i+1]; sumB += data[i+2]; n++;
+    }
+  }
+  const avgLum = (sumR/n * 0.299 + sumG/n * 0.587 + sumB/n * 0.114);
+  const fadeR = clamp(sumR/n * 0.3 + avgLum * 0.5 + 80, 200, 252);
+  const fadeG = clamp(sumG/n * 0.3 + avgLum * 0.5 + 80, 200, 252);
+  const fadeB = clamp(sumB/n * 0.3 + avgLum * 0.5 + 80, 200, 252);
+
+  const numP = 14 + Math.floor(rng() * 24);
   const patches = Array.from({length: numP}, () => ({
     cx: rng(), cy: rng(),
-    rx: 0.05 + rng() * 0.42, ry: 0.04 + rng() * 0.32,
+    rx: 0.05 + rng() * 0.40, ry: 0.04 + rng() * 0.30,
     angle: rng() * Math.PI, str: 0.65 + rng() * 0.35
   }));
   const w0 = 0.25 + rng() * 0.5, w1 = 0.15 + rng() * 0.5, w2 = 0.15 + rng() * 0.5;
   const wSum = w0 + w1 + w2;
 
-  // ── Heavy grain field ──────────────────────────────────────────────────
-  const grainAmp     = 40 + rng() * 80;    // much heavier
-  const grainScale   = 0.25 + rng() * 0.6; // spatial frequency of grain
-  const grainTint    = rng() > 0.5;        // sometimes grain has a warm tint
-
-  // ── Silver dots / halide clumping ──────────────────────────────────────
-  // Pre-generate dot field: sparse bright specks scattered across survived areas
-  const numDots      = Math.floor(w * h * (0.0008 + rng() * 0.003));
-  const dots         = Array.from({length: numDots}, () => ({
-    x: Math.floor(rng() * w),
-    y: Math.floor(rng() * h),
-    r: 0.5 + rng() * 3.5,   // radius in pixels
-    v: 180 + rng() * 75      // brightness
-  }));
-  // Rasterise dot field into a lookup map for O(1) per pixel
-  const dotMap = new Float32Array(w * h);
-  for (const d of dots) {
-    const x0 = Math.max(0, Math.floor(d.x - d.r - 1));
-    const x1 = Math.min(w - 1, Math.ceil(d.x + d.r + 1));
-    const y0 = Math.max(0, Math.floor(d.y - d.r - 1));
-    const y1 = Math.min(h - 1, Math.ceil(d.y + d.r + 1));
-    for (let dy = y0; dy <= y1; dy++) {
-      for (let dx = x0; dx <= x1; dx++) {
-        const dist = Math.sqrt((dx - d.x) ** 2 + (dy - d.y) ** 2);
-        if (dist <= d.r) {
-          const t = 1 - dist / d.r;
-          dotMap[dy * w + dx] = Math.max(dotMap[dy * w + dx], t * (d.v / 255));
-        }
-      }
-    }
-  }
-
-  // ── Scratches ──────────────────────────────────────────────────────────
-  // Line scratches: long thin trajectories, can be straight or slightly curved
-  const numScratches = 2 + Math.floor(rng() * 14);
-  const scratches    = Array.from({length: numScratches}, () => {
-    const vertical = rng() > 0.4;  // mostly vertical, like film scratches
-    return {
-      pos:      vertical ? rng() * w : rng() * h,   // x for vertical, y for horizontal
-      vertical,
-      width:    0.5 + rng() * 2.5,
-      bright:   rng() > 0.5,   // bright (overexposed) or dark (underexposed) scratch
-      strength: 0.5 + rng() * 0.5,
-      waver:    rng() * 0.015,  // how much the scratch wavers along its length
-      wavFreq:  2 + rng() * 8,  // frequency of waver
-      start:    rng() * 0.3,    // scratch doesn't always run full length
-      end:      0.7 + rng() * 0.3,
-    };
-  });
-
-  // Rasterise scratches into a map: positive = bright, negative = dark
-  const scratchMap = new Float32Array(w * h);
-  for (const s of scratches) {
-    for (let i = 0; i < (s.vertical ? h : w); i++) {
-      const t = i / (s.vertical ? h : w);
-      if (t < s.start || t > s.end) continue;
-      const waver = Math.sin(t * s.wavFreq * Math.PI * 2) * s.waver * (s.vertical ? w : h);
-      const pos = s.pos + waver;
-      const lo = Math.floor(pos - s.width), hi = Math.ceil(pos + s.width);
-      for (let j = lo; j <= hi; j++) {
-        if (j < 0) continue;
-        const dist = Math.abs(j - pos) / s.width;
-        if (dist > 1) continue;
-        const alpha = (1 - dist * dist) * s.strength;
-        const idx = s.vertical
-          ? clamp(i, 0, h - 1) * w + clamp(j, 0, w - 1)
-          : clamp(j, 0, h - 1) * w + clamp(i, 0, w - 1);
-        scratchMap[idx] = s.bright
-          ? Math.max(scratchMap[idx],  alpha)
-          : Math.min(scratchMap[idx], -alpha);
-      }
-    }
-  }
-
-  // ── Dust / micro-spots ─────────────────────────────────────────────────
-  // Fine black or dark dust specks sitting on the paper surface
-  const numDust  = Math.floor(w * h * (0.001 + rng() * 0.005));
-  const dustMap  = new Float32Array(w * h);
-  const dustSeeds = Array.from({length: numDust}, () => ({
-    x: Math.floor(rng() * w), y: Math.floor(rng() * h),
-    r: 0.3 + rng() * 1.8
-  }));
-  for (const d of dustSeeds) {
-    const x0 = Math.max(0, Math.floor(d.x - d.r - 1));
-    const x1 = Math.min(w - 1, Math.ceil(d.x + d.r + 1));
-    const y0 = Math.max(0, Math.floor(d.y - d.r - 1));
-    const y1 = Math.min(h - 1, Math.ceil(d.y + d.r + 1));
-    for (let dy = y0; dy <= y1; dy++) {
-      for (let dx = x0; dx <= x1; dx++) {
-        const dist = Math.sqrt((dx - d.x) ** 2 + (dy - d.y) ** 2);
-        if (dist <= d.r) dustMap[dy * w + dx] = Math.max(dustMap[dy * w + dx], 1 - dist / d.r);
-      }
-    }
-  }
-
-  // ── Halation bleed ─────────────────────────────────────────────────────
-  // Bright halos around highlight regions — light bleeds through the base
-  // Approximate by boosting bright pixels toward warm overexposed tone
-
-  // ── Pixel loop ─────────────────────────────────────────────────────────
-  const data = imgData.data;
+  const dustMap = buildDustMap(w, h, rng);
 
   for (let py = 0; py < h; py++) {
     const ny = py / h;
     for (let px = 0; px < w; px++) {
-      const nx  = px / w;
+      const nx = px / w;
       const idx = (py * w + px) * 4;
       let r = data[idx], g = data[idx+1], b = data[idx+2];
 
-      // Erasure mask ────────────────────────────────────────────────────
       const wx = fbm(nfn, nx*warpS+3.7, ny*warpS+9.2, 3, lacunarity, rng);
       const wy = fbm(nfn, nx*warpS+1.3, ny*warpS+6.8, 3, lacunarity, rng);
       const n1 = (fbm(nfn, nx*scaleX+wx*warpA*scaleX, ny*scaleY+wy*warpA*scaleY, 7, lacunarity, rng)+1)/2;
@@ -227,68 +259,44 @@ function corruptImageData(imgData, w, h, seed) {
       const survived = 1 - eraseAmt;
       const surviveDecay = clamp(raw / eraseThresh, 0, 1);
 
-      // Erase to paper ──────────────────────────────────────────────────
-      r = r + (paperR - r) * eraseAmt;
-      g = g + (paperG - g) * eraseAmt;
-      b = b + (paperB - b) * eraseAmt;
+      r = r + (fadeR - r) * eraseAmt;
+      g = g + (fadeG - g) * eraseAmt;
+      b = b + (fadeB - b) * eraseAmt;
 
-      // Heavy grain ─────────────────────────────────────────────────────
+      const boundaryZone = eraseAmt * survived * 4;
       const gn = (nfn(px*grainScale+(seed&0xff), py*grainScale)+1)/2;
-      const boundaryZone = eraseAmt * (1 - eraseAmt) * 4;
-      const grainWeight  = 0.04 + surviveDecay*0.25 + boundaryZone*1.2;
-      const grain = (gn - 0.5) * grainAmp * grainWeight;
-      if (grainTint) {
-        r = clamp(r + grain * 1.1, 0, 255);
-        g = clamp(g + grain * 0.85, 0, 255);
-        b = clamp(b + grain * 0.6,  0, 255);
-      } else {
-        r = clamp(r + grain, 0, 255);
-        g = clamp(g + grain, 0, 255);
-        b = clamp(b + grain, 0, 255);
+      const grain = (gn - 0.5) * grainAmp * (0.04 + surviveDecay*0.2 + boundaryZone*1.0);
+      r = clamp(r + grain, 0, 255);
+      g = clamp(g + grain, 0, 255);
+      b = clamp(b + grain, 0, 255);
+
+      const dv = dustMap[py * w + px];
+      if (dv > 0) {
+        r = clamp(r * (1 - dv * 0.8), 0, 255);
+        g = clamp(g * (1 - dv * 0.8), 0, 255);
+        b = clamp(b * (1 - dv * 0.8), 0, 255);
       }
 
-      // Silver dots / halide clumping ───────────────────────────────────
-      const dotVal = dotMap[py * w + px];
-      if (dotVal > 0) {
-        // Dots appear more on survived + transitional areas
-        const dotVisibility = survived * 0.5 + boundaryZone * 0.8;
-        const dv = dotVal * dotVisibility;
-        r = clamp(r + (paperR + 20 - r) * dv, 0, 255);
-        g = clamp(g + (paperG + 10 - g) * dv, 0, 255);
-        b = clamp(b + (paperB - 5  - b) * dv, 0, 255);
-      }
-
-      // Scratches ───────────────────────────────────────────────────────
-      const sv = scratchMap[py * w + px];
-      if (sv > 0) {
-        // Bright scratch — overexposed line
-        r = clamp(r + (255 - r) * sv * 0.85, 0, 255);
-        g = clamp(g + (240 - g) * sv * 0.75, 0, 255);
-        b = clamp(b + (200 - b) * sv * 0.6,  0, 255);
-      } else if (sv < 0) {
-        // Dark scratch — mechanical damage
-        const da = -sv;
-        r = clamp(r * (1 - da * 0.9), 0, 255);
-        g = clamp(g * (1 - da * 0.9), 0, 255);
-        b = clamp(b * (1 - da * 0.85), 0, 255);
-      }
-
-      // Dust specks ─────────────────────────────────────────────────────
-      const dv2 = dustMap[py * w + px];
-      if (dv2 > 0) {
-        r = clamp(r * (1 - dv2 * 0.85), 0, 255);
-        g = clamp(g * (1 - dv2 * 0.85), 0, 255);
-        b = clamp(b * (1 - dv2 * 0.80), 0, 255);
-      }
-
-      data[idx]   = r;
-      data[idx+1] = g;
-      data[idx+2] = b;
+      data[idx] = r; data[idx+1] = g; data[idx+2] = b;
     }
   }
+}
 
+// ── Dispatcher ────────────────────────────────────────────────────────────────
+
+function corruptImageData(imgData, w, h, seed) {
+  const data = imgData.data;
+  const rng  = seededRng(seed);
+  const nfn  = makeNoise(rng);
+  const isBW = detectBW(data, w, h);
+  if (isBW) {
+    corruptBW(data, w, h, seed, rng, nfn);
+  } else {
+    corruptColour(data, w, h, seed, rng, nfn);
+  }
   return imgData;
 }
+
 
 // ── Double exposure compositing ──────────────────────────────────────────────
 
