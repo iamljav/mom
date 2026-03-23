@@ -14,11 +14,23 @@
       <div class="mode-cards">
 
         <div class="mode-card" id="mode-single">
-          <svg viewBox="0 0 48 48" fill="none"><rect x="8" y="10" width="32" height="28" rx="1" stroke="currentColor" stroke-width="0.8"/><circle cx="18" cy="22" r="4" stroke="currentColor" stroke-width="0.8"/><path d="M8 32L18 23L26 30L33 22L40 32" stroke="currentColor" stroke-width="0.8" stroke-linejoin="round"/></svg>
+          <div class="mode-card-inner">
+            <div class="mode-icon">
+              <svg viewBox="0 0 48 48" fill="none"><rect x="8" y="10" width="32" height="28" rx="1" stroke="currentColor" stroke-width="0.8"/><circle cx="18" cy="22" r="4" stroke="currentColor" stroke-width="0.8"/><path d="M8 32L18 23L26 30L33 22L40 32" stroke="currentColor" stroke-width="0.8" stroke-linejoin="round"/></svg>
+            </div>
+            <p class="mode-name">Single exposure</p>
+            <p class="mode-desc">one photograph, corrupted</p>
+          </div>
         </div>
 
         <div class="mode-card" id="mode-double">
-          <svg viewBox="0 0 48 48" fill="none"><rect x="4" y="10" width="32" height="28" rx="1" stroke="currentColor" stroke-width="0.8" opacity="0.4"/><rect x="12" y="14" width="32" height="28" rx="1" stroke="currentColor" stroke-width="0.8"/><circle cx="26" cy="26" r="4" stroke="currentColor" stroke-width="0.8"/></svg>
+          <div class="mode-card-inner">
+            <div class="mode-icon mode-icon-double">
+              <svg viewBox="0 0 48 48" fill="none"><rect x="4" y="10" width="32" height="28" rx="1" stroke="currentColor" stroke-width="0.8" opacity="0.4"/><rect x="12" y="14" width="32" height="28" rx="1" stroke="currentColor" stroke-width="0.8"/><circle cx="26" cy="26" r="4" stroke="currentColor" stroke-width="0.8"/></svg>
+            </div>
+            <p class="mode-name">Double exposure</p>
+            <p class="mode-desc">two memories, one surface</p>
+          </div>
         </div>
 
       </div>
@@ -27,9 +39,15 @@
     <section id="single-section" style="display:none">
       <div class="upload-zone" id="single-zone">
         <input type="file" id="single-input" accept="image/*">
-        <svg viewBox="0 0 48 48" fill="none"><rect x="6" y="10" width="36" height="28" rx="1" stroke="currentColor" stroke-width="0.75"/><circle cx="17" cy="21" r="4" stroke="currentColor" stroke-width="0.75"/><path d="M6 31L17 22L25 29L33 20L42 31" stroke="currentColor" stroke-width="0.75" stroke-linejoin="round"/></svg>
+        <div class="upload-inner">
+          <div class="upload-icon">
+            <svg viewBox="0 0 48 48" fill="none"><rect x="6" y="10" width="36" height="28" rx="1" stroke="currentColor" stroke-width="0.75"/><circle cx="17" cy="21" r="4" stroke="currentColor" stroke-width="0.75"/><path d="M6 31L17 22L25 29L33 20L42 31" stroke="currentColor" stroke-width="0.75" stroke-linejoin="round"/></svg>
+          </div>
+          <p class="upload-label">drag & drop · click to browse</p>
+          <p class="upload-formats">jpg · png · webp</p>
+        </div>
       </div>
-      <button class="btn-back" id="single-back">←</button>
+      <button class="btn btn-back" id="single-back">←</button>
     </section>
 
     <section id="double-section" style="display:none">
@@ -38,7 +56,13 @@
         <div class="slot">
           <div class="upload-zone" id="zone-a">
             <input type="file" id="input-a" accept="image/*">
-            <svg viewBox="0 0 48 48" fill="none"><rect x="6" y="10" width="36" height="28" rx="1" stroke="currentColor" stroke-width="0.75"/><circle cx="17" cy="21" r="4" stroke="currentColor" stroke-width="0.75"/><path d="M6 31L17 22L25 29L33 20L42 31" stroke="currentColor" stroke-width="0.75" stroke-linejoin="round"/></svg>
+            <div class="upload-inner">
+              <div class="upload-icon">
+                <svg viewBox="0 0 48 48" fill="none"><rect x="6" y="10" width="36" height="28" rx="1" stroke="currentColor" stroke-width="0.75"/><circle cx="17" cy="21" r="4" stroke="currentColor" stroke-width="0.75"/><path d="M6 31L17 22L25 29L33 20L42 31" stroke="currentColor" stroke-width="0.75" stroke-linejoin="round"/></svg>
+              </div>
+              <p class="upload-label">first photograph</p>
+              <p class="upload-formats">jpg · png · webp</p>
+            </div>
           </div>
           <div class="slot-thumb" id="thumb-a" style="display:none">
             <img id="thumb-img-a" alt="">
@@ -49,7 +73,13 @@
         <div class="slot">
           <div class="upload-zone" id="zone-b">
             <input type="file" id="input-b" accept="image/*">
-            <svg viewBox="0 0 48 48" fill="none"><rect x="6" y="10" width="36" height="28" rx="1" stroke="currentColor" stroke-width="0.75"/><circle cx="17" cy="21" r="4" stroke="currentColor" stroke-width="0.75"/><path d="M6 31L17 22L25 29L33 20L42 31" stroke="currentColor" stroke-width="0.75" stroke-linejoin="round"/></svg>
+            <div class="upload-inner">
+              <div class="upload-icon">
+                <svg viewBox="0 0 48 48" fill="none"><rect x="6" y="10" width="36" height="28" rx="1" stroke="currentColor" stroke-width="0.75"/><circle cx="17" cy="21" r="4" stroke="currentColor" stroke-width="0.75"/><path d="M6 31L17 22L25 29L33 20L42 31" stroke="currentColor" stroke-width="0.75" stroke-linejoin="round"/></svg>
+              </div>
+              <p class="upload-label">second photograph</p>
+              <p class="upload-formats">jpg · png · webp</p>
+            </div>
           </div>
           <div class="slot-thumb" id="thumb-b" style="display:none">
             <img id="thumb-img-b" alt="">
@@ -59,8 +89,8 @@
 
       </div>
       <div class="double-actions">
-        <button class="btn-back" id="double-back">←</button>
-        <button class="btn-develop" id="develop-btn" disabled>→</button>
+        <button class="btn btn-back" id="double-back">←</button>
+        <button class="btn btn-develop" id="develop-btn" disabled>→</button>
       </div>
     </section>
 

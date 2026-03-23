@@ -4,7 +4,9 @@
   --bg:   #ffffff;
   --bg2:  #f5f5f5;
   --ink:  #111111;
-  --mid:  #999999;
+  --ink3: #777777;
+  --ink4: #999999;
+  --ink5: #cccccc;
   --line: #e0e0e0;
   --font: Helvetica Neue, Helvetica, Arial, sans-serif;
 }
@@ -14,6 +16,7 @@ html, body { height: 100%; }
 body {
   background: var(--bg);
   font-family: var(--font);
+  font-size: 14px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -37,41 +40,54 @@ main {
 }
 
 .mode-card {
-  width: 120px;
-  height: 120px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 200px;
   cursor: pointer;
-  color: var(--mid);
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s;
 }
-
-.mode-card svg { width: 36px; height: 36px; }
-
-.mode-card:hover { background: var(--bg2); color: var(--ink); }
-
+.mode-card:hover { background: var(--bg2); }
 .mode-card + .mode-card { border-left: 1px solid var(--line); }
 
+.mode-card-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2.5rem 1.5rem;
+  gap: 0.6rem;
+}
+
+.mode-icon { width: 36px; height: 36px; color: var(--ink4); margin-bottom: 0.4rem; }
+.mode-icon svg { width: 100%; height: 100%; }
+
+.mode-name { font-size: 11px; color: var(--ink); letter-spacing: 0.1em; text-transform: uppercase; }
+.mode-desc { font-size: 11px; color: var(--ink4); }
+
 /* ── Upload zones ── */
-#single-section { width: 100%; max-width: 560px; }
+#single-section { width: 100%; max-width: 520px; }
 
 .upload-zone {
   width: 100%;
-  aspect-ratio: 4/3;
   border: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   cursor: pointer;
   position: relative;
-  color: var(--mid);
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s;
+}
+.upload-zone:hover, .upload-zone.over { background: var(--bg2); }
+input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+.upload-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4rem 2rem;
+  gap: 0.5rem;
+  pointer-events: none;
 }
 
-.upload-zone svg { width: 36px; height: 36px; pointer-events: none; }
-.upload-zone:hover, .upload-zone.over { background: var(--bg2); color: var(--ink); }
-input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-icon { width: 32px; height: 32px; color: var(--ink5); margin-bottom: 0.4rem; }
+.upload-icon svg { width: 100%; height: 100%; }
+
+.upload-label { font-size: 12px; color: var(--ink3); }
+.upload-formats { font-size: 10px; color: var(--ink5); letter-spacing: 0.2em; text-transform: uppercase; }
 
 /* ── Double slots ── */
 #double-section { width: 100%; max-width: 700px; }
@@ -87,55 +103,35 @@ input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 
 .slot { background: var(--bg); position: relative; }
 
-.slot-thumb {
-  width: 100%;
-  aspect-ratio: 4/3;
-  overflow: hidden;
-  position: relative;
-}
-
-.slot-thumb img {
-  width: 100%; height: 100%;
-  object-fit: cover; display: block;
-  filter: brightness(0.9);
-}
+.slot-thumb { width: 100%; aspect-ratio: 4/3; overflow: hidden; position: relative; }
+.slot-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; filter: brightness(0.9); }
 
 .slot-clear {
   position: absolute; top: 8px; right: 8px;
-  background: rgba(255,255,255,0.9);
-  border: 1px solid var(--line);
-  color: var(--mid); width: 24px; height: 24px;
-  font-size: 14px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.9); border: 1px solid var(--line);
+  color: var(--ink4); width: 24px; height: 24px; font-size: 14px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
   font-family: var(--font); transition: color 0.15s;
 }
 .slot-clear:hover { color: var(--ink); }
 
-.double-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
+.double-actions { display: flex; justify-content: space-between; align-items: center; }
 
-/* ── Shared button styles ── */
-.btn-back, .btn-develop, .btn-action {
+/* ── Buttons ── */
+.btn, .btn-back, .btn-develop, .btn-action {
   background: none;
   border: 1px solid var(--line);
-  color: var(--mid);
+  color: var(--ink4);
   width: 36px; height: 36px;
-  font-size: 16px;
-  cursor: pointer;
+  font-size: 16px; cursor: pointer;
   font-family: var(--font);
   display: flex; align-items: center; justify-content: center;
   transition: color 0.15s, border-color 0.15s;
+  line-height: 1;
 }
+.btn:hover:not(:disabled), .btn-back:hover, .btn-action:hover { color: var(--ink); border-color: var(--ink4); }
 
-.btn-back:hover, .btn-action:hover { color: var(--ink); border-color: var(--mid); }
-
-.btn-develop {
-  border-color: var(--ink);
-  color: var(--ink);
-}
+.btn-develop { border-color: var(--ink); color: var(--ink); }
 .btn-develop:hover:not(:disabled) { background: var(--ink); color: var(--bg); }
 .btn-develop:disabled { opacity: 0.2; cursor: default; }
 
@@ -143,18 +139,9 @@ input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 #result-section { width: 100%; max-width: 900px; }
 
 .canvas-frame { position: relative; width: 100%; line-height: 0; }
-
 #canvas { width: 100%; display: block; background: var(--bg2); }
 
-.developing {
-  position: absolute; inset: 0;
-  background: var(--bg2);
-  display: none;
-}
+.developing { position: absolute; inset: 0; background: var(--bg2); display: none; }
 .developing.active { display: block; }
 
-.result-footer {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 1rem;
-}
+.result-footer { display: flex; justify-content: space-between; margin-top: 1rem; }
