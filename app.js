@@ -39,15 +39,10 @@
   const canvas         = document.getElementById('canvas');
   const ctx            = canvas.getContext('2d');
   const developing     = document.getElementById('developing');
-  const devText        = document.getElementById('developing-text');
-  const seedTag        = document.getElementById('seed-tag');
   const anotherBtn     = document.getElementById('another-btn');
   const saveBtn        = document.getElementById('save-btn');
 
-  const PHRASES = [
-    'developing…', 'forgetting…', 'dissolving…',
-    'fading…', 'remembering what it can…', 'overlapping…'
-  ];
+
 
   // ── State ─────────────────────────────────────────────────────────────────
   let mode   = null;   // 'single' | 'double'
@@ -146,7 +141,6 @@
 
   // ── Develop ───────────────────────────────────────────────────────────────
   function develop() {
-    devText.textContent = PHRASES[Math.floor(Math.random() * PHRASES.length)];
     show(resultSection);
     developing.classList.add('active');
 
@@ -167,7 +161,6 @@
         const seedStr = mode === 'single'
           ? seeds.a.toString(16).padStart(8, '0')
           : `${seeds.a.toString(16).padStart(8,'0')} · ${seeds.b.toString(16).padStart(8,'0')} · ${seeds.c.toString(16).padStart(8,'0')}`;
-        seedTag.textContent = seedStr;
 
         developing.classList.remove('active');
       }, 40);
