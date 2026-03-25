@@ -201,45 +201,39 @@ function corruptBW(data, w, h, seed, rng, nfn) {
 }
 
 function corruptColour(data, w, h, seed, rng, nfn) {
-  const globalDecay   = 0.75 + rng() * 0.25;
-  const scaleX        = 1.0 + rng() * 5.0;
-  const scaleY        = 1.0 + rng() * 5.0;
-  const lacunarity    = 1.6 + rng() * 0.8;
-  const vigCx         = 0.2 + rng() * 0.6;
-  const vigCy         = 0.2 + rng() * 0.6;
-  const vigPow        = 0.7 + rng() * 3.0;
-  const vigStr        = 0.9 + rng() * 1.6;
-  const warpS         = 0.4 + rng() * 2.0;
-  const warpA         = 0.1 + rng() * 0.22;
-  const eraseThresh   = 0.22 + rng() * 0.28;
-  const edgeSharpness = 8 + rng() * 22;
-  const grainAmp      = 35 + rng() * 65;
-  const grainScale    = 0.25 + rng() * 0.5;
+  const lacunarity = 1.7 + rng() * 0.6;
 
-  // Sample image to derive a bleach fade tone (image-specific, not warm paper)
-  let sumR = 0, sumG = 0, sumB = 0, n = 0;
-  const step = Math.max(4, Math.floor(Math.sqrt(w * h) / 60));
-  for (let py = 0; py < h; py += step) {
-    for (let px = 0; px < w; px += step) {
-      const i = (py * w + px) * 4;
-      sumR += data[i]; sumG += data[i+1]; sumB += data[i+2]; n++;
-    }
-  }
-  const avgLum = (sumR/n * 0.299 + sumG/n * 0.587 + sumB/n * 0.114);
-  const fadeR = clamp(sumR/n * 0.3 + avgLum * 0.5 + 80, 200, 252);
-  const fadeG = clamp(sumG/n * 0.3 + avgLum * 0.5 + 80, 200, 252);
-  const fadeB = clamp(sumB/n * 0.3 + avgLum * 0.5 + 80, 200, 252);
+  // Same directional dissolve logic as B&W — one side survives, other bleaches out
+  const originX = rng() < 0.5 ? rng() * 0.3 : 0.7 + rng() * 0.3;
+  const originY = rng() < 0.5 ? rng() * 0.3 : 0.7 + rng() * 0.3;
 
-  const numP = 14 + Math.floor(rng() * 24);
-  const patches = Array.from({length: numP}, () => ({
-    cx: rng(), cy: rng(),
-    rx: 0.05 + rng() * 0.40, ry: 0.04 + rng() * 0.30,
-    angle: rng() * Math.PI, str: 0.65 + rng() * 0.35
-  }));
-  const w0 = 0.25 + rng() * 0.5, w1 = 0.15 + rng() * 0.5, w2 = 0.15 + rng() * 0.5;
-  const wSum = w0 + w1 + w2;
+  const survivalRadius = 0.2 + rng() * 0.4;
+  const dissolveWidth  = 0.25 + rng() * 0.45;
+  const warpS          = 0.5 + rng() * 1.5;
+  const noiseWarp      = 0.1 + rng() * 0.2;
 
-  const dustMap = buildDustMap(w, h, rng);
+  // Contrast: surviving areas get their colours intensified
+  const contrastGamma  = 1.2 + rng() * 0.8;   // slightly gentler than B&W
+  const satBoost       = 1.1 + rng() * 0.4;    // push colours more vivid where survived
+
+  // Tonal noise — same two-layer approach as B&W
+  const coarseScale    = 1.5 + rng() * 2.5;
+  const fineScale      = 7.0 + rng() * 12.0;
+  const tonerNoiseAmp  = 0.08 + rng() * 0.16;
+  const boundaryNoiseAmp = 0.3 + rng() * 0.3;
+
+  // Streaky anisotropic boundary noise
+  const streakAngle   = rng() * Math.PI;
+  const streakCos     = Math.cos(streakAngle), streakSin = Math.sin(streakAngle);
+  const streakStretch = 3.0 + rng() * 5.0;
+  const streakScale   = 3.0 + rng() * 5.0;
+
+  // Overexposure colour: each channel bleaches at slightly different rate
+  // — red bleaches fastest (like cyan dye fading), blue slowest
+  // This gives the faint colour whisper in burned areas
+  const bleachR = 0.85 + rng() * 0.15;  // how far red channel bleaches (toward 255)
+  const bleachG = 0.80 + rng() * 0.15;
+  const bleachB = 0.70 + rng() * 0.20;  // blue retains more — slightly cool cast in burned areas
 
   for (let py = 0; py < h; py++) {
     const ny = py / h;
@@ -248,57 +242,72 @@ function corruptColour(data, w, h, seed, rng, nfn) {
       const idx = (py * w + px) * 4;
       let r = data[idx], g = data[idx+1], b = data[idx+2];
 
-      const wx = fbm(nfn, nx*warpS+3.7, ny*warpS+9.2, 3, lacunarity, rng);
-      const wy = fbm(nfn, nx*warpS+1.3, ny*warpS+6.8, 3, lacunarity, rng);
-      const n1 = (fbm(nfn, nx*scaleX+wx*warpA*scaleX, ny*scaleY+wy*warpA*scaleY, 7, lacunarity, rng)+1)/2;
-      const n2 = (fbm(nfn, nx*scaleX*1.8+41, ny*scaleY*1.8+17, 4, lacunarity, rng)+1)/2;
-      const noiseMask = n1*0.6 + n2*0.4;
+      // Distance from survival origin, domain-warped
+      const distRaw = Math.sqrt((nx - originX)**2 + (ny - originY)**2);
+      const wx = (fbm(nfn, nx*warpS+7.3, ny*warpS+2.1, 3, lacunarity, rng) + 1) / 2;
+      const wy = (fbm(nfn, nx*warpS+3.1, ny*warpS+8.7, 3, lacunarity, rng) + 1) / 2;
+      const warpedDist = distRaw + (wx - 0.5) * noiseWarp * 2 + (wy - 0.5) * noiseWarp;
 
-      const dxv = (nx-vigCx)*1.6, dyv = (ny-vigCy)*1.6;
-      const vigMask = clamp(Math.pow(Math.max(0, Math.sqrt(dxv*dxv+dyv*dyv)-0.18), vigPow)*vigStr, 0, 1);
+      // Streaky anisotropic noise for boundary
+      const rx = (nx - 0.5) * streakCos - (ny - 0.5) * streakSin;
+      const ry = (nx - 0.5) * streakSin + (ny - 0.5) * streakCos;
+      const sn  = (fbm(nfn, rx * streakScale * streakStretch + 31, ry * streakScale + 11, 5, lacunarity, rng) + 1) / 2;
+      const sn2 = (fbm(nfn, rx * streakScale * streakStretch * 0.5 + 73, ry * streakScale * 0.5 + 53, 4, lacunarity, rng) + 1) / 2;
+      const streakMask = sn * 0.6 + sn2 * 0.4;
 
-      let patchMask = 0;
-      for (const p of patches) {
-        const ca = Math.cos(p.angle), sa = Math.sin(p.angle);
-        const rdx = (nx-p.cx)*ca - (ny-p.cy)*sa;
-        const rdy = (nx-p.cx)*sa + (ny-p.cy)*ca;
-        const dist = Math.sqrt((rdx/p.rx)**2 + (rdy/p.ry)**2);
-        if (dist < 1) {
-          const pn = (nfn(px*0.09+p.cx*30, py*0.09+p.cy*30)+1)/2;
-          patchMask = Math.max(patchMask, (1 - dist*(0.7+pn*0.3)) * p.str);
-        }
-      }
-
-      const raw      = (noiseMask*w0 + vigMask*w1 + patchMask*w2) / wSum * globalDecay;
-      const norm     = (raw - eraseThresh) * edgeSharpness;
-      const eraseAmt = clamp(1 / (1 + Math.exp(-norm)), 0, 1);
+      // Dissolve field
+      const distNorm = (warpedDist - survivalRadius) / dissolveWidth;
+      const dissolveField = clamp(distNorm + (streakMask - 0.5) * 1.6, 0, 1);
+      const eraseAmt = smoothstep(dissolveField);
       const survived = 1 - eraseAmt;
-      const surviveDecay = clamp(raw / eraseThresh, 0, 1);
-
-      r = r + (fadeR - r) * eraseAmt;
-      g = g + (fadeG - g) * eraseAmt;
-      b = b + (fadeB - b) * eraseAmt;
-
       const boundaryZone = eraseAmt * survived * 4;
-      const gn = (nfn(px*grainScale+(seed&0xff), py*grainScale)+1)/2;
-      const grain = (gn - 0.5) * grainAmp * (0.04 + surviveDecay*0.2 + boundaryZone*1.0);
-      r = clamp(r + grain, 0, 255);
-      g = clamp(g + grain, 0, 255);
-      b = clamp(b + grain, 0, 255);
 
-      const dv = dustMap[py * w + px];
-      if (dv > 0) {
-        r = clamp(r * (1 - dv * 0.8), 0, 255);
-        g = clamp(g * (1 - dv * 0.8), 0, 255);
-        b = clamp(b * (1 - dv * 0.8), 0, 255);
+      // ── Contrast + saturation boost on surviving areas ──
+      if (survived > 0.01) {
+        const lum = r * 0.299 + g * 0.587 + b * 0.114;
+
+        // Tonal noise — same two-layer approach, per-channel for colour variation
+        const cn  = (fbm(nfn, nx*coarseScale+5, ny*coarseScale+17, 4, lacunarity, rng) + 1) / 2;
+        const fn  = (nfn(px * fineScale * 0.01 + (seed & 0xff) * 0.1, py * fineScale * 0.01) + 1) / 2;
+        const tonerNoise = (cn * 0.6 + fn * 0.4 - 0.5) * tonerNoiseAmp * survived;
+
+        // Apply power curve to each channel independently (richer colour contrast)
+        let rn = clamp(r / 255 + tonerNoise, 0, 1);
+        let gn = clamp(g / 255 + tonerNoise, 0, 1);
+        let bn = clamp(b / 255 + tonerNoise, 0, 1);
+
+        rn = Math.pow(rn, contrastGamma);
+        gn = Math.pow(gn, contrastGamma);
+        bn = Math.pow(bn, contrastGamma);
+
+        // Saturation boost: move each channel away from luminance
+        const lumN = rn * 0.299 + gn * 0.587 + bn * 0.114;
+        rn = clamp(lumN + (rn - lumN) * satBoost * survived, 0, 1);
+        gn = clamp(lumN + (gn - lumN) * satBoost * survived, 0, 1);
+        bn = clamp(lumN + (bn - lumN) * satBoost * survived, 0, 1);
+
+        r = rn * 255; g = gn * 255; b = bn * 255;
       }
+
+      // ── Boundary: streaky tonal bleach ──
+      if (boundaryZone > 0.01) {
+        const bleach = boundaryZone * boundaryNoiseAmp * streakMask;
+        r = clamp(r + bleach * 255, 0, 255);
+        g = clamp(g + bleach * 255, 0, 255);
+        b = clamp(b + bleach * 255, 0, 255);
+      }
+
+      // ── Overexposure burn — channels fade at different rates ──
+      // Each channel bleaches toward 255 at its own speed,
+      // leaving a faint colour whisper in the most burned areas.
+      r = r + (255 - r) * eraseAmt * bleachR;
+      g = g + (255 - g) * eraseAmt * bleachG;
+      b = b + (255 - b) * eraseAmt * bleachB;
 
       data[idx] = r; data[idx+1] = g; data[idx+2] = b;
     }
   }
 }
-
-// ── Dispatcher ────────────────────────────────────────────────────────────────
 
 function corruptImageData(imgData, w, h, seed) {
   const data = imgData.data;
